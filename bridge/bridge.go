@@ -26,21 +26,27 @@ type Bridge struct {
 	config         Config
 }
 
-func New(docker *dockerapi.Client, adapterUri string, config Config) (*Bridge, error) {
-	uri, err := url.Parse(adapterUri)
-	if err != nil {
-		return nil, errors.New("bad adapter uri: " + adapterUri)
+func New(docker *dockerapi.Client, aU string, config Config) (*Bridge, error) {
+
+	adapterUris := strings.Split(aU, ",")
+	uris := make([]*url.URL, 0)
+	for _, adapterUri := range adapterUris {
+		uri, err := url.Parse(adapterUri)
+		if err != nil {
+			return nil, errors.New("bad adapter uri: " + adapterUri)
+		}
+		uris = append(uris, uri)
 	}
-	factory, found := AdapterFactories.Lookup(uri.Scheme)
+	factory, found := AdapterFactories.Lookup(uris[0].Scheme)
 	if !found {
-		return nil, errors.New("unrecognized adapter: " + adapterUri)
+		return nil, errors.New("unrecognized adapter: " + adapterUris[0])
 	}
 
-	log.Println("Using", uri.Scheme, "adapter:", uri)
+	log.Println("Using", uris[0].Scheme)
 	return &Bridge{
 		docker:         docker,
 		config:         config,
-		registry:       factory.New(uri),
+		registry:       factory.New(uris),
 		services:       make(map[string][]*Service),
 		deadContainers: make(map[string]*DeadContainer),
 	}, nil
@@ -202,7 +208,7 @@ func (b *Bridge) add(containerId string, quiet bool) {
 
 	// Extract configured host port mappings, relevant when using --net=host
 	for port, _ := range container.Config.ExposedPorts {
-		published := []dockerapi.PortBinding{ {"0.0.0.0", port.Port()}, }
+		published := []dockerapi.PortBinding{{"0.0.0.0", port.Port()}}
 		ports[string(port)] = servicePort(container, port, published)
 	}
 
@@ -301,7 +307,7 @@ func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 				service.IP = containerIp
 			}
 			log.Println("using container IP " + service.IP + " from label '" +
-				b.config.UseIpFromLabel  + "'")
+				b.config.UseIpFromLabel + "'")
 		} else {
 			log.Println("Label '" + b.config.UseIpFromLabel +
 				"' not found in container configuration")
